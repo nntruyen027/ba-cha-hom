@@ -34,18 +34,20 @@
             right: 0;
             z-index: 3;
             text-align: center;
-            white-space: nowrap;
+            padding: 0 4vw;
+            line-height: 1.25;
             pointer-events: none;
             font-family: 'Dancing Script', cursive;
             font-weight: 700;
         }
         #top { top: max(3vh, env(safe-area-inset-top)); font-size: clamp(22px, min(10vw, 9vh), 96px); }
-        #bottom { bottom: max(3vh, env(safe-area-inset-bottom)); font-size: clamp(20px, min(9.5vw, 8.5vh), 90px); }
+        #bottom { bottom: max(3vh, env(safe-area-inset-bottom)); font-size: clamp(20px, min(8vw, 7vh), 80px); }
+        .title .w { display: inline-block; white-space: nowrap; }
         @media (max-height: 450px) and (orientation: landscape) {
             #top { top: 1vh; }
             #bottom { bottom: 1vh; }
         }
-        .title span {
+        .title .ch {
             display: inline-block;
             opacity: 0;
             background: linear-gradient(90deg, #ff4d6d, #ffb3c6, #ffd166, #ff8fab, #ff4d6d);
@@ -102,7 +104,8 @@
         if (loaded) return;
         loaded = true;
         var mobile = window.isDevice || Math.min(innerWidth, innerHeight) < 600 || matchMedia('(pointer: coarse)').matches;
-        var koef = mobile ? 0.5 : 1;
+        // render at device resolution so the heart stays sharp on retina phones
+        var koef = Math.min(window.devicePixelRatio || 1, 2);
         var canvas = document.getElementById('heart');
         var ctx = canvas.getContext('2d');
         var width = canvas.width = koef * innerWidth;
@@ -132,19 +135,24 @@
         var traceCount = mobile ? 20 : 50;
         var pointsOrigin = [];
         var i;
-        var dr = mobile ? 0.3 : 0.1;
+        var dr = mobile ? 0.15 : 0.1;
         var layers = [[210, 13], [180, 11], [150, 9], [120, 7], [90, 5]];
         var heartScale = 1;
+        var heartCY = height / 2;
         var buildPoints = function () {
-            // base heart is ~420x400px at scale 1; leave room for the text above/below
-            var portrait = height > width;
-            var s = heartScale = Math.min(width * (portrait ? 0.92 : 0.85) / 420, height * (portrait ? 0.6 : 0.64) / 400);
+            // fit the heart (~420x403 units at scale 1) into the gap between the two titles
+            var gapTop = document.getElementById('top').getBoundingClientRect().bottom * koef;
+            var gapBot = document.getElementById('bottom').getBoundingClientRect().top * koef;
+            var gap = Math.max(gapBot - gapTop, height * 0.4);
+            heartCY = gapBot - gapTop > height * 0.4 ? (gapTop + gapBot) / 2 : height / 2;
+            var s = heartScale = Math.min(width * 0.92 / 420, gap * 0.92 / 403);
             pointsOrigin.length = 0;
             layers.forEach(function (l) {
                 for (var a = 0; a < Math.PI * 2; a += dr) pointsOrigin.push(scaleAndTranslate(heartPosition(a), l[0] * s, l[1] * s, 0, 0));
             });
         };
         buildPoints();
+        if (document.fonts) document.fonts.ready.then(buildPoints);
         var heartPointsCount = pointsOrigin.length;
 
         var targetPoints = [];
@@ -153,7 +161,7 @@
                 targetPoints[i] = [];
                 targetPoints[i][0] = kx * pointsOrigin[i][0] + width / 2;
                 // heart curve is bottom-heavy (~-12..19 units), shift up to center it
-                targetPoints[i][1] = ky * (pointsOrigin[i][1] - 45 * heartScale) + height / 2;
+                targetPoints[i][1] = ky * (pointsOrigin[i][1] - 45 * heartScale) + heartCY;
             }
         };
 
@@ -315,7 +323,7 @@
                 var dx = u.trace[0].x - q[0];
                 var dy = u.trace[0].y - q[1];
                 var length = Math.sqrt(dx * dx + dy * dy);
-                if (10 > length) {
+                if (10 * heartScale > length) {
                     if (0.95 < rand()) {
                         u.q = ~~(rand() * heartPointsCount);
                     }
@@ -330,8 +338,8 @@
                         }
                     }
                 }
-                u.vx += -dx / length * u.speed;
-                u.vy += -dy / length * u.speed;
+                u.vx += -dx / length * u.speed * heartScale;
+                u.vy += -dy / length * u.speed * heartScale;
                 u.trace[0].x += u.vx;
                 u.trace[0].y += u.vy;
                 u.vx *= u.force;
@@ -344,7 +352,7 @@
                 }
                 ctx.fillStyle = u.f;
                 for (k = 0; k < u.trace.length; k++) {
-                    ctx.fillRect(u.trace[k].x, u.trace[k].y, 1, 1);
+                    ctx.fillRect(u.trace[k].x, u.trace[k].y, koef, koef);
                 }
             }
             //ctx.fillStyle = "rgba(255,255,255,1)";
@@ -359,12 +367,21 @@
 
     ['top', 'bottom'].forEach(function (id, n) {
         var el = document.getElementById(id);
-        Array.from(el.dataset.text).forEach(function (ch, j) {
-            var sp = document.createElement('span');
-            sp.textContent = ch === ' ' ? '\u00A0' : ch;
-            var d = n * 1.5 + j * 0.08;
-            sp.style.animationDelay = d + 's, 0s, ' + (d + 0.8) + 's';
-            el.appendChild(sp);
+        var j = 0;
+        // wrap per word so long text breaks between words, not mid-word
+        el.dataset.text.split(' ').forEach(function (word, wi) {
+            if (wi) el.appendChild(document.createTextNode(' '));
+            var w = document.createElement('span');
+            w.className = 'w';
+            Array.from(word).forEach(function (ch) {
+                var sp = document.createElement('span');
+                sp.className = 'ch';
+                sp.textContent = ch;
+                var d = n * 1.5 + j++ * 0.08;
+                sp.style.animationDelay = d + 's, 0s, ' + (d + 0.8) + 's';
+                w.appendChild(sp);
+            });
+            el.appendChild(w);
         });
     });
 
