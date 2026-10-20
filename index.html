@@ -108,85 +108,77 @@
         var koef = Math.min(window.devicePixelRatio || 1, 2);
         var canvas = document.getElementById('heart');
         var ctx = canvas.getContext('2d');
-        var width = canvas.width = koef * innerWidth;
-        var height = canvas.height = koef * innerHeight;
+        var width, height;
         var rand = Math.random;
-        ctx.fillStyle = "rgba(0,0,0,1)";
-        ctx.fillRect(0, 0, width, height);
+        var i;
+        var P = {length: mobile ? 1200 : 2000, duration: 2, velocity: 100, effect: -1.3, size: 13};
 
-
-        var heartPosition = function (rad) {
-            //return [Math.sin(rad), Math.cos(rad)];
-            return [Math.pow(Math.sin(rad), 3), -(15 * Math.cos(rad) - 5 * Math.cos(2 * rad) - 2 * Math.cos(3 * rad) - Math.cos(4 * rad))];
-        };
-        var scaleAndTranslate = function (pos, sx, sy, dx, dy) {
-            return [dx + pos[0] * sx, dy + pos[1] * sy];
+        var pointOnHeart = function (t) {
+            return [
+                160 * Math.pow(Math.sin(t), 3),
+                130 * Math.cos(t) - 50 * Math.cos(2 * t) - 20 * Math.cos(3 * t) - 10 * Math.cos(4 * t) + 25
+            ];
         };
 
-        window.addEventListener('resize', function () {
+        var heartScale = 1, heartCX = 0, heartCY = 0;
+        var image = document.createElement('canvas');
+        var buildHeart = function () {
             width = canvas.width = koef * innerWidth;
             height = canvas.height = koef * innerHeight;
-            ctx.fillStyle = "rgba(0,0,0,1)";
-            ctx.fillRect(0, 0, width, height);
-            buildPoints();
+            // fit the effect (~500x500 units incl. particle drift) between the two titles
+            var gapTop = document.getElementById('top').getBoundingClientRect().bottom * koef;
+            var gapBot = document.getElementById('bottom').getBoundingClientRect().top * koef;
+            var fits = gapBot - gapTop > height * 0.4;
+            heartCX = width / 2;
+            heartCY = fits ? (gapTop + gapBot) / 2 : height / 2;
+            heartScale = Math.min(width, fits ? gapBot - gapTop : height * 0.6) / 500;
+
+            var size = Math.max(4, Math.round(P.size * heartScale * 1.2));
+            image.width = image.height = size;
+            var c = image.getContext('2d');
+            c.beginPath();
+            for (var t = -Math.PI; t < Math.PI; t += 0.01) {
+                var pt = pointOnHeart(t);
+                c.lineTo(size / 2 + pt[0] * size / 350, size / 2 - pt[1] * size / 350);
+            }
+            c.closePath();
+            c.fillStyle = '#FF5CA4';
+            c.fill();
+        };
+        buildHeart();
+        if (document.fonts) document.fonts.ready.then(buildHeart);
+
+        window.addEventListener('resize', function () {
+            buildHeart();
             resizeFx();
         });
 
-        var traceCount = mobile ? 20 : 50;
-        var pointsOrigin = [];
-        var i;
-        var dr = mobile ? 0.15 : 0.1;
-        var layers = [[210, 13], [180, 11], [150, 9], [120, 7], [90, 5]];
-        var heartScale = 1;
-        var heartCY = height / 2;
-        var buildPoints = function () {
-            // fit the heart (~420x403 units at scale 1) into the gap between the two titles
-            var gapTop = document.getElementById('top').getBoundingClientRect().bottom * koef;
-            var gapBot = document.getElementById('bottom').getBoundingClientRect().top * koef;
-            var gap = Math.max(gapBot - gapTop, height * 0.4);
-            heartCY = gapBot - gapTop > height * 0.4 ? (gapTop + gapBot) / 2 : height / 2;
-            var s = heartScale = Math.min(width * 0.92 / 420, gap * 0.92 / 403);
-            pointsOrigin.length = 0;
-            layers.forEach(function (l) {
-                for (var a = 0; a < Math.PI * 2; a += dr) pointsOrigin.push(scaleAndTranslate(heartPosition(a), l[0] * s, l[1] * s, 0, 0));
-            });
-        };
-        buildPoints();
-        if (document.fonts) document.fonts.ready.then(buildPoints);
-        var heartPointsCount = pointsOrigin.length;
-
-        var targetPoints = [];
-        var pulse = function (kx, ky) {
-            for (i = 0; i < pointsOrigin.length; i++) {
-                targetPoints[i] = [];
-                targetPoints[i][0] = kx * pointsOrigin[i][0] + width / 2;
-                // heart curve is bottom-heavy (~-12..19 units), shift up to center it
-                targetPoints[i][1] = ky * (pointsOrigin[i][1] - 45 * heartScale) + heartCY;
-            }
+        var parts = [];
+        for (i = 0; i < P.length; i++) parts.push({x: 0, y: 0, vx: 0, vy: 0, ax: 0, ay: 0, age: P.duration});
+        var nextFree = 0;
+        var addParticle = function () {
+            var pt = pointOnHeart(Math.PI - 2 * Math.PI * rand());
+            var len = Math.sqrt(pt[0] * pt[0] + pt[1] * pt[1]) || 1;
+            var dx = pt[0] / len * P.velocity, dy = -pt[1] / len * P.velocity;
+            var o = parts[nextFree];
+            nextFree = (nextFree + 1) % P.length;
+            o.x = pt[0];
+            o.y = -pt[1];
+            o.vx = dx;
+            o.vy = dy;
+            o.ax = dx * P.effect;
+            o.ay = dy * P.effect;
+            o.age = 0;
         };
 
-        var e = [];
-        for (i = 0; i < heartPointsCount; i++) {
-            var x = rand() * width;
-            var y = rand() * height;
-            e[i] = {
-                vx: 0,
-                vy: 0,
-                R: 2,
-                speed: rand() + 5,
-                q: ~~(rand() * heartPointsCount),
-                D: 2 * (i % 2) - 1,
-                force: 0.2 * rand() + 0.7,
-                f: "hsla(0," + ~~(40 * rand() + 60) + "%," + ~~(60 * rand() + 20) + "%,.3)",
-                trace: []
-            };
-            for (var k = 0; k < traceCount; k++) e[i].trace[k] = {x: x, y: y};
-        }
-
-        var config = {
-            traceK: 0.4,
-            timeDelta: 0.01
+        // heartbeat: 1 -> 0.8 -> 1.2 -> 1 every 1.3s
+        var beat = function (t) {
+            var k = (t % 1.3) / 1.3;
+            if (k < 0.3) return 1 - 0.2 * (k / 0.3);
+            if (k < 0.6) return 0.8 + 0.4 * ((k - 0.3) / 0.3);
+            return 1.2 - 0.2 * ((k - 0.6) / 0.4);
         };
+
 
         var fx = document.getElementById('fx');
         var fctx = fx.getContext('2d');
@@ -306,57 +298,36 @@
             }
         };
 
-        var time = 0;
-        var textLeft1 = 0;
-        var textLeft2 = -10;
+        var lastTime = 0;
         var loop = function () {
-            var mLeft = 50;
-            var mTop = 250;
-            var n = -Math.cos(time);
-            pulse((1 + n) * .5, (1 + n) * .5);
-            time += ((Math.sin(time)) < 0 ? 9 : (n > 0.8) ? .2 : 1) * config.timeDelta;
-            ctx.fillStyle = "rgba(0,0,0,.1)";
-            ctx.fillRect(0, 0, width, height);
-            for (i = e.length; i--;) {
-                var u = e[i];
-                var q = targetPoints[u.q];
-                var dx = u.trace[0].x - q[0];
-                var dy = u.trace[0].y - q[1];
-                var length = Math.sqrt(dx * dx + dy * dy);
-                if (10 * heartScale > length) {
-                    if (0.95 < rand()) {
-                        u.q = ~~(rand() * heartPointsCount);
-                    }
-                    else {
-                        if (0.99 < rand()) {
-                            u.D *= -1;
-                        }
-                        u.q += u.D;
-                        u.q %= heartPointsCount;
-                        if (0 > u.q) {
-                            u.q += heartPointsCount;
-                        }
-                    }
-                }
-                u.vx += -dx / length * u.speed * heartScale;
-                u.vy += -dy / length * u.speed * heartScale;
-                u.trace[0].x += u.vx;
-                u.trace[0].y += u.vy;
-                u.vx *= u.force;
-                u.vy *= u.force;
-                for (k = 0; k < u.trace.length - 1;) {
-                    var T = u.trace[k];
-                    var N = u.trace[++k];
-                    N.x -= config.traceK * (N.x - T.x);
-                    N.y -= config.traceK * (N.y - T.y);
-                }
-                ctx.fillStyle = u.f;
-                for (k = 0; k < u.trace.length; k++) {
-                    ctx.fillRect(u.trace[k].x, u.trace[k].y, koef, koef);
-                }
+            var now = performance.now() / 1000;
+            // clamp so a backgrounded tab doesn't make particles jump
+            var dt = lastTime ? Math.min(now - lastTime, 0.1) : 0;
+            lastTime = now;
+
+            var amount = P.length / P.duration * dt;
+            for (i = 0; i < amount; i++) addParticle();
+
+            ctx.setTransform(1, 0, 0, 1, 0, 0);
+            ctx.clearRect(0, 0, width, height);
+            var b = heartScale * beat(now);
+            ctx.setTransform(b, 0, 0, b, heartCX, heartCY);
+            for (i = 0; i < P.length; i++) {
+                var o = parts[i];
+                if (o.age >= P.duration) continue;
+                o.x += o.vx * dt;
+                o.y += o.vy * dt;
+                o.vx += o.ax * dt;
+                o.vy += o.ay * dt;
+                o.age += dt;
+                var r = o.age / P.duration;
+                if (r >= 1) continue;
+                var ease = (r - 1) * (r - 1) * (r - 1) + 1;
+                var sz = P.size * ease;
+                ctx.globalAlpha = 1 - r;
+                ctx.drawImage(image, o.x - sz / 2, o.y - sz / 2, sz, sz);
             }
-            //ctx.fillStyle = "rgba(255,255,255,1)";
-            //for (i = u.trace.length; i--;) ctx.fillRect(targetPoints[i][0], targetPoints[i][1], 2, 2);
+            ctx.globalAlpha = 1;
 
             drawFx();
             window.requestAnimationFrame(loop, canvas);
